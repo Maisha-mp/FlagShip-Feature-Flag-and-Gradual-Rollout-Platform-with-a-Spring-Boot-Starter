@@ -1,8 +1,17 @@
 package com.flagship.core.eval;
 
 import com.flagship.core.model.*;
+import java.util.List;
+import java.util.Optional;
 
 public final class FlagEvaluator {
+
+    // The order here IS the evaluation order from the spec (FR2).
+    private final List<EvaluationStep> chain = List.of(
+            new KillSwitchStep(),
+            new UserTargetStep(),
+            new RuleStep(),
+            new RolloutStep());
 
     public EvaluationResult evaluate(Flag flag, Environment env, EvaluationContext ctx) {
         EnvironmentConfig cfg = flag.environments().get(env);
@@ -11,16 +20,12 @@ public final class FlagEvaluator {
                 "Flag " + flag.key() + " has no config for " + env);
         }
 
-        // 1. Kill switch
-        if (cfg.killSwitchOn()) {
-            return result(flag, cfg.offVariation(), Reason.KILL_SWITCH);
+        for (EvaluationStep step : chain) {
+            Optional<Decision> decision = step.evaluate(cfg, flag.key(), ctx);
+            if (decision.isPresent()) {
+                return result(flag, decision.get().variationName(), decision.get().reason());
+            }
         }
-        // 2. Individual user target
-        String targeted = cfg.userTargets().get(ctx.userKey());
-        if (targeted != null) {
-            return result(flag, targeted, Reason.USER_TARGET);
-        }
-        // 3. Default
         return result(flag, cfg.defaultVariation(), Reason.DEFAULT);
     }
 
