@@ -20,6 +20,23 @@ public final class EvaluationContext {
 
     public static Builder builder(String userKey) { return new Builder(userKey); }
 
+    /** Two contexts are equal when they describe the same user with the same attributes. */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof EvaluationContext other)) {
+            return false;
+        }
+        return userKey.equals(other.userKey) && attributes.equals(other.attributes);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(userKey, attributes);
+    }
+
     public static final class Builder {
         private final String userKey;
         private final Map<String, Object> attributes = new HashMap<>();
