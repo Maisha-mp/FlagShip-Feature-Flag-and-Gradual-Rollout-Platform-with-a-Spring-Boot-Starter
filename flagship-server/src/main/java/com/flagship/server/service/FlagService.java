@@ -15,6 +15,7 @@ import com.flagship.server.api.FlagResponse;
 import com.flagship.server.entity.FlagEntity;
 import com.flagship.server.entity.FlagEnvironmentConfig;
 import com.flagship.server.entity.Project;
+import com.flagship.server.push.FlagsChangedEvent;
 import com.flagship.server.repository.FlagEnvironmentConfigRepository;
 import com.flagship.server.repository.FlagRepository;
 import com.flagship.server.repository.ProjectRepository;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,15 +41,18 @@ public class FlagService {
     private final FlagEnvironmentConfigRepository configs;
     private final FlagConverter converter;
     private final ObjectMapper mapper;
+    private final ApplicationEventPublisher events;
 
     public FlagService(ProjectRepository projects, FlagRepository flags,
                        FlagEnvironmentConfigRepository configs,
-                       FlagConverter converter, ObjectMapper mapper) {
+                       FlagConverter converter, ObjectMapper mapper,
+                       ApplicationEventPublisher events) {
         this.projects = projects;
         this.flags = flags;
         this.configs = configs;
         this.converter = converter;
         this.mapper = mapper;
+        this.events = events;
     }
 
     // ---------- create ----------
@@ -91,6 +96,9 @@ public class FlagService {
             cfg.setFlag(flag);
             configs.save(cfg);
         }
+
+        // Delivered to connected apps only AFTER the transaction commits.
+        events.publishEvent(new FlagsChangedEvent(projectKey, req.key(), null));
         return toResponse(flag, built);
     }
 
@@ -127,6 +135,8 @@ public class FlagService {
                         "Flag '" + flagKey + "' has no config for " + env));
         applyTo(cfg, converter.variationsFromJson(flag.getVariationsJson()).keySet(), req);
         configs.save(cfg);
+
+        events.publishEvent(new FlagsChangedEvent(projectKey, flagKey, env));
         return toResponse(flag, configs.findByFlag(flag));
     }
 

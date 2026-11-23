@@ -21,7 +21,7 @@ public class FlagShipProperties {
     /** Which environment's settings to evaluate. */
     private Environment environment = Environment.PRODUCTION;
 
-    /** How often to re-download the snapshot. */
+    /** How often to re-download the snapshot (the safety net when push is on). */
     private Duration pollInterval = Duration.ofSeconds(30);
 
     /** Longest the starter may delay application startup while loading flags. */
@@ -35,6 +35,18 @@ public class FlagShipProperties {
 
     /** How many evaluation results to remember; 0 turns the cache off. */
     private int cacheSize = 10_000;
+
+    /** Listen to the server's push stream (SSE) for instant changes. */
+    private boolean pushEnabled = true;
+
+    /** Reconnect if nothing, not even a ping, arrives on the push stream for this long. */
+    private Duration pushIdleTimeout = Duration.ofSeconds(45);
+
+    /** First wait before reconnecting the push stream. */
+    private Duration pushRetryInitial = Duration.ofSeconds(1);
+
+    /** Longest wait between push reconnect attempts. */
+    private Duration pushRetryMax = Duration.ofSeconds(30);
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -62,4 +74,16 @@ public class FlagShipProperties {
 
     public int getCacheSize() { return cacheSize; }
     public void setCacheSize(int cacheSize) { this.cacheSize = cacheSize; }
+
+    public boolean isPushEnabled() { return pushEnabled; }
+    public void setPushEnabled(boolean pushEnabled) { this.pushEnabled = pushEnabled; }
+
+    public Duration getPushIdleTimeout() { return pushIdleTimeout; }
+    public void setPushIdleTimeout(Duration pushIdleTimeout) { this.pushIdleTimeout = pushIdleTimeout; }
+
+    public Duration getPushRetryInitial() { return pushRetryInitial; }
+    public void setPushRetryInitial(Duration pushRetryInitial) { this.pushRetryInitial = pushRetryInitial; }
+
+    public Duration getPushRetryMax() { return pushRetryMax; }
+    public void setPushRetryMax(Duration pushRetryMax) { this.pushRetryMax = pushRetryMax; }
 }

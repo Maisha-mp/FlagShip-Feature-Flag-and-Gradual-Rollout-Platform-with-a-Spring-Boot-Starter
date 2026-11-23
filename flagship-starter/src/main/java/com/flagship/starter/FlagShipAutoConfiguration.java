@@ -2,6 +2,7 @@ package com.flagship.starter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flagship.codec.SnapshotCodec;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -10,7 +11,7 @@ import org.springframework.context.annotation.Bean;
 
 /**
  * Loaded automatically by Spring Boot when this jar is on the classpath.
- * Creates the snapshot store, keeps it fresh, and offers a FlagClient.
+ * Creates the snapshot store, keeps it fresh (polling plus server push), and offers a FlagClient.
  */
 @AutoConfiguration
 @ConditionalOnProperty(prefix = "flagship", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -36,6 +37,27 @@ public class FlagShipAutoConfiguration {
     @ConditionalOnMissingBean
     public SnapshotSynchronizer flagShipSnapshotSynchronizer(SnapshotStore store, FlagShipProperties props) {
         return new SnapshotSynchronizer(store, props.getStartupTimeout(), props.getPollInterval());
+    }
+
+    /** Listens to the server's push stream. Started only after the first download has been tried. */
+    @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "flagship", name = "push-enabled", havingValue = "true", matchIfMissing = true)
+    public SseChangeClient flagShipSseChangeClient(SnapshotStore store, SnapshotSynchronizer synchronizer,
+                                                   FlagShipProperties props) {
+        return new SseChangeClient(
+                props.getServerUrl(), props.getProject(), props.getEnvironment(),
+                props.getRequestTimeout(), props.getPushIdleTimeout(),
+                new Backoff(props.getPushRetryInitial(), props.getPushRetryMax()),
+                store::refresh);
+    }
+
+    /** Registers every FlagChangeListener bean of the application with the store. */
+    @Bean
+    @ConditionalOnMissingBean
+    public FlagChangeListenerRegistrar flagShipListenerRegistrar(SnapshotStore store,
+                                                                 ObjectProvider<FlagChangeListener> listeners) {
+        return new FlagChangeListenerRegistrar(store, listeners);
     }
 
     @Bean
