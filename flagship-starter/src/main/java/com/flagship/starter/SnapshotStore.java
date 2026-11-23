@@ -4,16 +4,19 @@ import com.flagship.codec.Snapshot;
 import com.flagship.codec.SnapshotCodec;
 import com.flagship.core.model.Flag;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Holds the current snapshot in memory. Reads never touch the network.
  * A failed or broken refresh never throws and never replaces a good snapshot.
  * This is the "subject" of the Observer pattern: listeners are told what changed.
+ * It also remembers when the last refresh worked or failed and how often (Actuator and metrics).
  */
 public final class SnapshotStore {
 
@@ -27,6 +30,13 @@ public final class SnapshotStore {
 
     /** Makes refreshes run one at a time, so listeners are told about changes in order. */
     private final Object lock = new Object();
+
+    // Refresh statistics. Written under the lock, read from any thread.
+    private volatile Instant lastRefreshSuccess;
+    private volatile Instant lastRefreshFailure;
+    private volatile String lastRefreshError;
+    private final LongAdder refreshSuccesses = new LongAdder();
+    private final LongAdder refreshFailures = new LongAdder();
 
     public SnapshotStore(SnapshotFetcher fetcher, SnapshotFile file, SnapshotCodec codec) {
         this.fetcher = fetcher;
@@ -53,6 +63,8 @@ public final class SnapshotStore {
                 String json = fetcher.fetch();
                 Snapshot snapshot = codec.fromJson(json);   // check BEFORE replacing anything
                 Snapshot previous = current.getAndSet(snapshot);
+                lastRefreshSuccess = Instant.now();
+                refreshSuccesses.increment();
                 try {
                     file.save(json);
                 } catch (IOException e) {
@@ -62,9 +74,13 @@ public final class SnapshotStore {
                 notifyListeners(previous, snapshot);
                 return true;
             } catch (IOException | RuntimeException e) {
+                String reason = describe(e);
+                lastRefreshFailure = Instant.now();
+                lastRefreshError = reason;
+                refreshFailures.increment();
                 LOG.log(System.Logger.Level.WARNING,
                         "FlagShip: could not refresh the snapshot, keeping the previous one: {0}",
-                        e.getMessage());
+                        reason);
                 return false;
             }
         }
@@ -113,6 +129,31 @@ public final class SnapshotStore {
         return snapshot == null ? null : snapshot.flag(key);
     }
 
+    /** When the last download from the server worked, or null if it never has. */
+    public Instant lastRefreshSuccess() {
+        return lastRefreshSuccess;
+    }
+
+    /** When the last download from the server failed, or null if it never has. */
+    public Instant lastRefreshFailure() {
+        return lastRefreshFailure;
+    }
+
+    /** The reason of the last failed refresh (never empty once a failure happened), or null. */
+    public String lastRefreshError() {
+        return lastRefreshError;
+    }
+
+    /** How many downloads from the server worked so far. */
+    public long refreshSuccessCount() {
+        return refreshSuccesses.sum();
+    }
+
+    /** How many downloads from the server failed so far. */
+    public long refreshFailureCount() {
+        return refreshFailures.sum();
+    }
+
     // ---------- notifying ----------
 
     private void notifyListeners(Snapshot previous, Snapshot snapshot) {
@@ -132,5 +173,14 @@ public final class SnapshotStore {
                         "FlagShip: a change listener failed and was skipped: {0}", e.getMessage());
             }
         }
+    }
+
+    /** Some exceptions (like a refused connection) have no message, so fall back to the class name. */
+    private static String describe(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.isBlank()) {
+            return e.getClass().getSimpleName();
+        }
+        return message;
     }
 }

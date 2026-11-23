@@ -16,14 +16,26 @@ public final class DefaultFlagClient implements FlagClient {
     private static final System.Logger LOG = System.getLogger(DefaultFlagClient.class.getName());
 
     private final SnapshotStore store;
+    private final FlagShipStats stats;
     private final FlagEvaluator evaluator = new FlagEvaluator();
 
     public DefaultFlagClient(SnapshotStore store) {
+        this(store, new FlagShipStats());
+    }
+
+    public DefaultFlagClient(SnapshotStore store, FlagShipStats stats) {
         this.store = store;
+        this.stats = stats;
     }
 
     @Override
     public Optional<EvaluationResult> evaluate(String flagKey, EvaluationContext context) {
+        Optional<EvaluationResult> result = compute(flagKey, context);
+        stats.recordEvaluation(result);
+        return result;
+    }
+
+    private Optional<EvaluationResult> compute(String flagKey, EvaluationContext context) {
         Snapshot snapshot = store.current();   // read once, so a refresh mid-call cannot mix two snapshots
         if (snapshot == null) {
             return Optional.empty();

@@ -13,9 +13,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CheckoutController {
 
     private final FlagClient flags;
+    private final CheckoutService checkoutService;
 
-    public CheckoutController(FlagClient flags) {
+    public CheckoutController(FlagClient flags, CheckoutService checkoutService) {
         this.flags = flags;
+        this.checkoutService = checkoutService;
     }
 
     @GetMapping("/checkout")
@@ -33,5 +35,19 @@ public class CheckoutController {
                 "country", country,
                 "newCheckout", newCheckout,
                 "reason", result.map(r -> r.reason().name()).orElse("FALLBACK"));
+    }
+
+    /** Same flag, but decided by the @FlagGuard annotation on CheckoutService. */
+    @GetMapping("/checkout-guarded")
+    public Map<String, Object> guardedCheckout(@RequestParam String user,
+                                               @RequestParam(defaultValue = "US") String country) {
+        EvaluationContext context = EvaluationContext.builder(user)
+                .attribute("country", country)
+                .build();
+
+        return Map.of(
+                "user", user,
+                "country", country,
+                "page", checkoutService.checkout(context));
     }
 }

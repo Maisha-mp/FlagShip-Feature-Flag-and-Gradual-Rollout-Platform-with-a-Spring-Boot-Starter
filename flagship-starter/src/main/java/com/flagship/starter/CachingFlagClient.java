@@ -28,6 +28,7 @@ public final class CachingFlagClient implements FlagClient {
     private final FlagClient delegate;
     private final Supplier<?> versionSource;
     private final int maxEntries;
+    private final FlagShipStats stats;
     private volatile State state;
 
     /**
@@ -35,12 +36,18 @@ public final class CachingFlagClient implements FlagClient {
      *                      (the starter passes the current Snapshot object)
      */
     public CachingFlagClient(FlagClient delegate, Supplier<?> versionSource, int maxEntries) {
+        this(delegate, versionSource, maxEntries, new FlagShipStats());
+    }
+
+    public CachingFlagClient(FlagClient delegate, Supplier<?> versionSource, int maxEntries,
+                             FlagShipStats stats) {
         if (maxEntries < 1) {
             throw new IllegalArgumentException("maxEntries must be at least 1");
         }
         this.delegate = delegate;
         this.versionSource = versionSource;
         this.maxEntries = maxEntries;
+        this.stats = stats;
         this.state = new State(versionSource.get());
     }
 
@@ -56,18 +63,22 @@ public final class CachingFlagClient implements FlagClient {
         Key key = new Key(flagKey, context);
         Optional<EvaluationResult> cached = current.entries.get(key);
         if (cached != null) {
+            stats.recordCacheHit();
+            stats.recordEvaluation(cached);
             return cached;
         }
 
+        stats.recordCacheMiss();
         Optional<EvaluationResult> result = delegate.evaluate(flagKey, context);
         if (current.entries.size() >= maxEntries) {
             current.entries.clear();
         }
         current.entries.put(key, result);
+        stats.recordEvaluation(result);
         return result;
     }
 
-    /** How many answers are remembered right now (used by tests and, later, metrics). */
+    /** How many answers are remembered right now (used by tests and the Actuator endpoint). */
     public int cachedEntries() {
         return state.entries.size();
     }
