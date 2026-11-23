@@ -8,10 +8,14 @@ import com.flagship.core.model.FlagType;
 import com.flagship.core.model.Rollout;
 import com.flagship.core.model.Rule;
 import com.flagship.core.model.Variation;
+import com.flagship.server.api.ChangeRequestResponse;
 import com.flagship.server.api.EnvironmentRequest;
 import com.flagship.server.api.EnvironmentResponse;
 import com.flagship.server.api.FlagRequest;
 import com.flagship.server.api.FlagResponse;
+import com.flagship.server.change.ChangeInfo;
+import com.flagship.server.change.ConfigState;
+import com.flagship.server.change.SetConfigCommand;
 import com.flagship.server.entity.FlagEntity;
 import com.flagship.server.entity.FlagEnvironmentConfig;
 import com.flagship.server.entity.Project;
@@ -19,12 +23,14 @@ import com.flagship.server.push.FlagsChangedEvent;
 import com.flagship.server.repository.FlagEnvironmentConfigRepository;
 import com.flagship.server.repository.FlagRepository;
 import com.flagship.server.repository.ProjectRepository;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,23 +48,28 @@ public class FlagService {
     private final FlagConverter converter;
     private final ObjectMapper mapper;
     private final ApplicationEventPublisher events;
+    private final VersionService versions;
+    private final ChangeRequestService changeRequests;
 
     public FlagService(ProjectRepository projects, FlagRepository flags,
                        FlagEnvironmentConfigRepository configs,
                        FlagConverter converter, ObjectMapper mapper,
-                       ApplicationEventPublisher events) {
+                       ApplicationEventPublisher events, VersionService versions,
+                       ChangeRequestService changeRequests) {
         this.projects = projects;
         this.flags = flags;
         this.configs = configs;
         this.converter = converter;
         this.mapper = mapper;
         this.events = events;
+        this.versions = versions;
+        this.changeRequests = changeRequests;
     }
 
     // ---------- create ----------
 
     @Transactional
-    public FlagResponse create(String projectKey, FlagRequest req) {
+    public FlagResponse create(String projectKey, FlagRequest req, ChangeInfo info) {
         Project project = findProject(projectKey);
         if (flags.existsByProjectAndKey(project, req.key())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -92,9 +103,11 @@ public class FlagService {
         flag.setVariationsJson(converter.variationsToJson(variations));
         flags.save(flag);
 
+        ChangeInfo created = info.withDefaultReason("Flag created");
         for (FlagEnvironmentConfig cfg : built) {
             cfg.setFlag(flag);
             configs.save(cfg);
+            versions.recordInitial(flag, cfg, created);   // version 1 of this environment
         }
 
         // Delivered to connected apps only AFTER the transaction commits.
@@ -126,18 +139,32 @@ public class FlagService {
 
     // ---------- update one environment (replaces that environment's whole config) ----------
 
+    /**
+     * Applies the change now, or queues it as a change request (approval needed or applyAt in the future).
+     */
     @Transactional
-    public FlagResponse updateEnvironment(String projectKey, String flagKey,
-                                          Environment env, EnvironmentRequest req) {
-        FlagEntity flag = findFlag(findProject(projectKey), flagKey);
+    public Outcome<FlagResponse> updateEnvironment(String projectKey, String flagKey, Environment env,
+                                                   EnvironmentRequest req, ChangeInfo info, Instant applyAt) {
+        Project project = findProject(projectKey);
+        FlagEntity flag = findFlag(project, flagKey);
         FlagEnvironmentConfig cfg = configs.findByFlagAndEnvironment(flag, env)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Flag '" + flagKey + "' has no config for " + env));
-        applyTo(cfg, converter.variationsFromJson(flag.getVariationsJson()).keySet(), req);
-        configs.save(cfg);
 
+        // Validate the request on a scratch copy; the real config only changes when the command runs.
+        FlagEnvironmentConfig scratch = new FlagEnvironmentConfig();
+        applyTo(scratch, converter.variationsFromJson(flag.getVariationsJson()).keySet(), req);
+        ConfigState state = ConfigState.from(scratch);
+
+        Optional<ChangeRequestResponse> queued =
+                changeRequests.queueIfNeeded(project, flag, env, state, info, applyAt, null);
+        if (queued.isPresent()) {
+            return new Outcome<>(null, queued.get());
+        }
+
+        versions.run(flag, new SetConfigCommand(cfg, state), info, null);
         events.publishEvent(new FlagsChangedEvent(projectKey, flagKey, env));
-        return toResponse(flag, configs.findByFlag(flag));
+        return new Outcome<>(toResponse(flag, configs.findByFlag(flag)), null);
     }
 
     // ---------- helpers ----------

@@ -18,6 +18,11 @@ public class Project {
     @Column(nullable = false, length = 200)
     private String name;
 
+    // If true, changes to PRODUCTION must be approved by a second person.
+    // The default lets Hibernate add this column to a table that already has rows.
+    @Column(name = "require_approval", nullable = false, columnDefinition = "boolean default false")
+    private boolean requireApproval;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -33,6 +38,9 @@ public class Project {
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
+
+    public boolean isRequireApproval() { return requireApproval; }
+    public void setRequireApproval(boolean requireApproval) { this.requireApproval = requireApproval; }
 
     public Instant getCreatedAt() { return createdAt; }
 }

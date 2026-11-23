@@ -78,7 +78,7 @@ class Qa1SpeedTest {
     }
 
     private static void report(String name, long[] sorted) {
-        System.out.println("QA1 speed, " + name + ": p50 = " + sorted[SAMPLES / 2] / 1000.0
+        System.out.println("QA1 speed, 10 rules per flag, " + name + ": p50 = " + sorted[SAMPLES / 2] / 1000.0
                 + " us, p99 = " + p99(sorted) / 1000.0
                 + " us, max = " + sorted[SAMPLES - 1] / 1000.0
                 + " us (limit " + LIMIT_NANOS / 1000 + " us for p99)");
