@@ -8,25 +8,25 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
-/** FR7: approval by a second person and scheduled changes, through the real HTTP API. */
+/** FR7: approval by a second person and scheduled changes, through the real HTTP API (logged in). */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:changes;DB_CLOSE_DELAY=-1",
         "spring.jpa.show-sql=false",
         "flagship.enabled=false",           // the starter must not configure itself inside the server
-        "flagship.scheduler.interval=200"   // check for due changes every 200 ms in tests
+        "flagship.scheduler.interval=200",  // check for due changes every 200 ms in tests
+        "flagship.security.admin-password=admin-test-pw-1"
 })
 class ChangeRequestApiTest {
 
@@ -37,21 +37,24 @@ class ChangeRequestApiTest {
     TestRestTemplate rest;
 
     private final ObjectMapper mapper = new ObjectMapper();
+    private TestApi api;
+
+    @BeforeEach
+    void setUp() {
+        api = new TestApi(rest, port);
+        for (String user : List.of("alice", "bob", "carol")) {
+            api.ensureUser(user);
+        }
+    }
 
     // ---------- helpers ----------
 
-    private ResponseEntity<String> call(HttpMethod method, String path, String body,
-                                        String author, String reason) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (author != null) {
-            headers.set("X-Author", author);
-        }
-        if (reason != null) {
-            headers.set("X-Reason", reason);
-        }
-        return rest.exchange("http://127.0.0.1:" + port + path, method, new HttpEntity<>(body, headers),
-                String.class);
+    private ResponseEntity<String> call(HttpMethod method, String path, String body, String user, String reason) {
+        return api.call(method, path, body, user, reason);
+    }
+
+    private ResponseEntity<String> get(String path) {
+        return call(HttpMethod.GET, path, null, "alice", null);
     }
 
     private JsonNode json(ResponseEntity<String> response) throws Exception {
@@ -59,27 +62,23 @@ class ChangeRequestApiTest {
     }
 
     private static int code(ResponseEntity<String> response) {
-        return response.getStatusCode().value();
+        return TestApi.code(response);
     }
 
     private static String env(boolean kill, String defaultVariation) {
-        return "{\"killSwitchOn\":" + kill + ",\"offVariation\":\"off\",\"defaultVariation\":\""
-                + defaultVariation + "\",\"userTargets\":{},\"rules\":[],\"rollout\":null}";
+        return TestApi.envJson(kill, defaultVariation);
     }
 
+    /** alice creates the project (ADMIN); bob and carol are approvers. */
     private void setup(String project, boolean requireApproval) {
-        assertEquals(201, code(call(HttpMethod.POST, "/api/projects",
-                "{\"key\":\"" + project + "\",\"name\":\"Changes\"}", null, null)));
+        api.createProject(project, "alice");
+        api.addMember(project, "bob", "APPROVER", "alice");
+        api.addMember(project, "carol", "APPROVER", "alice");
         if (requireApproval) {
             assertEquals(200, code(call(HttpMethod.PUT, "/api/projects/" + project + "/settings",
-                    "{\"requireApproval\":true}", null, null)));
+                    "{\"requireApproval\":true}", "alice", null)));
         }
-        String e = env(false, "off");
-        assertEquals(201, code(call(HttpMethod.POST, "/api/projects/" + project + "/flags",
-                "{\"key\":\"chg-flag\",\"name\":\"Flag\",\"type\":\"BOOLEAN\","
-                        + "\"variations\":{\"on\":true,\"off\":false},"
-                        + "\"environments\":{\"DEVELOPMENT\":" + e + ",\"STAGING\":" + e
-                        + ",\"PRODUCTION\":" + e + "}}", "creator", null)));
+        api.createFlag(project, "chg-flag", "alice", null);
     }
 
     private static String prodPath(String project) {
@@ -87,17 +86,16 @@ class ChangeRequestApiTest {
     }
 
     private boolean killSwitch(String project, String environment) throws Exception {
-        return json(call(HttpMethod.GET, "/api/projects/" + project + "/flags/chg-flag", null, null, null))
+        return json(get("/api/projects/" + project + "/flags/chg-flag"))
                 .get("environments").get(environment).get("killSwitchOn").asBoolean();
     }
 
     private JsonNode history(String project) throws Exception {
-        return json(call(HttpMethod.GET, prodPath(project) + "/versions", null, null, null));
+        return json(get(prodPath(project) + "/versions"));
     }
 
     private String status(String project, long id) throws Exception {
-        return json(call(HttpMethod.GET, "/api/projects/" + project + "/change-requests/" + id,
-                null, null, null)).get("status").asText();
+        return json(get("/api/projects/" + project + "/change-requests/" + id)).get("status").asText();
     }
 
     private void waitForStatus(String project, long id, String expected, long millis) throws Exception {
@@ -109,8 +107,8 @@ class ChangeRequestApiTest {
     }
 
     /** Sends a production change that must be queued (202) and returns the change request's id. */
-    private long queue(String project, boolean kill, String author, String reason) throws Exception {
-        ResponseEntity<String> r = call(HttpMethod.PUT, prodPath(project), env(kill, "on"), author, reason);
+    private long queue(String project, boolean kill, String user, String reason) throws Exception {
+        ResponseEntity<String> r = call(HttpMethod.PUT, prodPath(project), env(kill, "on"), user, reason);
         assertEquals(202, code(r));
         return json(r).get("id").asLong();
     }
@@ -140,9 +138,9 @@ class ChangeRequestApiTest {
         assertTrue(fields.contains("killSwitchOn"));
         assertFalse(killSwitch("appr-1", "PRODUCTION"));   // nothing changed yet
 
-        // the author cannot approve; a name is required
+        // the author cannot approve (alice has the role, but the rule stops her); no login is refused
         assertEquals(403, code(call(HttpMethod.POST, requests("appr-1", id) + "/approve", null, "alice", null)));
-        assertEquals(400, code(call(HttpMethod.POST, requests("appr-1", id) + "/approve", null, null, null)));
+        assertEquals(401, code(call(HttpMethod.POST, requests("appr-1", id) + "/approve", null, null, null)));
         assertFalse(killSwitch("appr-1", "PRODUCTION"));
 
         // a second person approves: the change is applied as a new version
@@ -190,10 +188,8 @@ class ChangeRequestApiTest {
         assertFalse(killSwitch("appr-2", "PRODUCTION"));
         assertEquals(1, history("appr-2").size());
 
-        assertEquals(0, json(call(HttpMethod.GET,
-                "/api/projects/appr-2/change-requests?status=PENDING_APPROVAL", null, null, null)).size());
-        assertEquals(2, json(call(HttpMethod.GET,
-                "/api/projects/appr-2/change-requests", null, null, null)).size());
+        assertEquals(0, json(get("/api/projects/appr-2/change-requests?status=PENDING_APPROVAL")).size());
+        assertEquals(2, json(get("/api/projects/appr-2/change-requests")).size());
     }
 
     @Test
@@ -296,9 +292,10 @@ class ChangeRequestApiTest {
         setup("sett-1", false);
         String path = "/api/projects/sett-1/settings";
 
-        assertFalse(json(call(HttpMethod.GET, path, null, null, null)).get("requireApproval").asBoolean());
-        assertEquals(200, code(call(HttpMethod.PUT, path, "{\"requireApproval\":true}", null, null)));
-        assertTrue(json(call(HttpMethod.GET, path, null, null, null)).get("requireApproval").asBoolean());
-        assertEquals(404, code(call(HttpMethod.GET, "/api/projects/no-such-project/settings", null, null, null)));
+        assertFalse(json(get(path)).get("requireApproval").asBoolean());
+        assertEquals(200, code(call(HttpMethod.PUT, path, "{\"requireApproval\":true}", "alice", null)));
+        assertTrue(json(get(path)).get("requireApproval").asBoolean());
+        // the site admin gets the real 404; a normal user is refused first because they are no member
+        assertEquals(404, code(call(HttpMethod.GET, "/api/projects/no-such-project/settings", null, "admin", null)));
     }
 }

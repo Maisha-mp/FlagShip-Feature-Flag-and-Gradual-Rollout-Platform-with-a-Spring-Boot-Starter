@@ -5,6 +5,7 @@ import com.flagship.server.change.ChangeInfo;
 import com.flagship.server.service.FlagService;
 import com.flagship.server.service.Outcome;
 import jakarta.validation.Valid;
+import java.security.Principal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -33,9 +34,9 @@ public class FlagController {
     @ResponseStatus(HttpStatus.CREATED)
     public FlagResponse create(@PathVariable String projectKey,
                                @Valid @RequestBody FlagRequest request,
-                               @RequestHeader(name = "X-Author", required = false) String author,
+                               Principal principal,
                                @RequestHeader(name = "X-Reason", required = false) String reason) {
-        return service.create(projectKey, request, ChangeInfo.of(author, reason));
+        return service.create(projectKey, request, ChangeInfo.of(principal.getName(), reason));
     }
 
     @GetMapping
@@ -55,10 +56,10 @@ public class FlagController {
                                                     @PathVariable Environment env,
                                                     @Valid @RequestBody EnvironmentRequest request,
                                                     @RequestParam(name = "applyAt", required = false) String applyAt,
-                                                    @RequestHeader(name = "X-Author", required = false) String author,
+                                                    Principal principal,
                                                     @RequestHeader(name = "X-Reason", required = false) String reason) {
         Outcome<FlagResponse> outcome = service.updateEnvironment(projectKey, flagKey, env, request,
-                ChangeInfo.of(author, reason), ApplyAtParser.parse(applyAt));
+                ChangeInfo.of(principal.getName(), reason), ApplyAtParser.parse(applyAt));
         if (outcome.queued() != null) {
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(outcome.queued());
         }

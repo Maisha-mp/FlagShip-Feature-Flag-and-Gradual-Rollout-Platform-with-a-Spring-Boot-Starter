@@ -5,6 +5,7 @@ import com.flagship.server.change.ChangeInfo;
 import com.flagship.server.service.ChangeRequestService;
 import com.flagship.server.service.Outcome;
 import com.flagship.server.service.VersionService;
+import java.security.Principal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -57,10 +58,10 @@ public class VersionController {
     public ResponseEntity<Object> restore(@PathVariable String projectKey, @PathVariable String flagKey,
                                           @PathVariable Environment env, @PathVariable int version,
                                           @RequestParam(name = "applyAt", required = false) String applyAt,
-                                          @RequestHeader(name = "X-Author", required = false) String author,
+                                          Principal principal,
                                           @RequestHeader(name = "X-Reason", required = false) String reason) {
         Outcome<VersionResponse> outcome = changeRequests.restore(projectKey, flagKey, env, version,
-                ChangeInfo.of(author, reason), ApplyAtParser.parse(applyAt));
+                ChangeInfo.of(principal.getName(), reason), ApplyAtParser.parse(applyAt));
         if (outcome.queued() != null) {
             return ResponseEntity.status(HttpStatus.ACCEPTED).body(outcome.queued());
         }

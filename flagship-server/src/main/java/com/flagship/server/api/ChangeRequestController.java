@@ -2,6 +2,7 @@ package com.flagship.server.api;
 
 import com.flagship.server.entity.ChangeRequestStatus;
 import com.flagship.server.service.ChangeRequestService;
+import java.security.Principal;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,27 +36,20 @@ public class ChangeRequestController {
 
     @PostMapping("/{id}/approve")
     public ChangeRequestResponse approve(@PathVariable String projectKey, @PathVariable long id,
-                                         @RequestHeader(name = "X-Author", required = false) String author) {
-        return service.approve(projectKey, id, requireName(author, "approve"));
+                                         Principal principal) {
+        return service.approve(projectKey, id, principal.getName());
     }
 
     @PostMapping("/{id}/reject")
     public ChangeRequestResponse reject(@PathVariable String projectKey, @PathVariable long id,
-                                        @RequestHeader(name = "X-Author", required = false) String author,
+                                        Principal principal,
                                         @RequestHeader(name = "X-Reason", required = false) String note) {
-        return service.reject(projectKey, id, requireName(author, "reject"), note);
+        return service.reject(projectKey, id, principal.getName(), note);
     }
 
     @PostMapping("/{id}/cancel")
     public ChangeRequestResponse cancel(@PathVariable String projectKey, @PathVariable long id,
-                                        @RequestHeader(name = "X-Author", required = false) String author) {
-        return service.cancel(projectKey, id, requireName(author, "cancel"));
-    }
-
-    private static String requireName(String author, String action) {
-        if (author == null || author.isBlank()) {
-            throw new IllegalArgumentException("The X-Author header is required to " + action);
-        }
-        return author.trim();
+                                        Principal principal) {
+        return service.cancel(projectKey, id, principal.getName());
     }
 }

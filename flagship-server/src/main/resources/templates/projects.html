@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('Projects')}"></head>
+<body>
+<header th:replace="~{fragments :: header(${username})}"></header>
+<main>
+    <h1>Projects</h1>
+    <p class="note ok" th:if="${message}" th:text="${message}"></p>
+    <p class="note bad" th:if="${error}" th:text="${error}"></p>
+
+    <div class="card muted" th:if="${projects.isEmpty()}">
+        You are not a member of any project yet. Create one below, or ask a project admin to add you.
+    </div>
+    <table class="card" th:unless="${projects.isEmpty()}">
+        <thead><tr><th>Key</th><th>Name</th></tr></thead>
+        <tbody>
+        <tr th:each="p : ${projects}">
+            <td><a th:href="@{/projects/{k}(k=${p.key()})}" th:text="${p.key()}">key</a></td>
+            <td th:text="${p.name()}">name</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <h2>New project</h2>
+    <form class="card" th:action="@{/projects}" method="post">
+        <label for="key">Key (lowercase letters, digits, dashes)</label>
+        <input id="key" type="text" name="key" maxlength="100" placeholder="checkout-app">
+        <label for="name">Name</label>
+        <input id="name" type="text" name="name" maxlength="200" placeholder="Checkout app">
+        <p><button type="submit">Create project</button></p>
+    </form>
+</main>
+</body>
+</html>

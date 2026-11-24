@@ -1,10 +1,12 @@
 package com.flagship.server.api;
 
-import com.flagship.server.entity.Project;
 import com.flagship.server.repository.ProjectRepository;
+import com.flagship.server.service.MemberService;
 import jakarta.validation.Valid;
+import java.security.Principal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,27 +21,29 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProjectController {
 
     private final ProjectRepository projects;
+    private final MemberService members;
 
-    public ProjectController(ProjectRepository projects) {
+    public ProjectController(ProjectRepository projects, MemberService members) {
         this.projects = projects;
+        this.members = members;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ProjectResponse create(@Valid @RequestBody ProjectRequest request) {
+    public ProjectResponse create(@Valid @RequestBody ProjectRequest request, Principal principal) {
         if (projects.existsByKey(request.key())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "A project with key '" + request.key() + "' already exists");
         }
-        Project p = new Project();
-        p.setKey(request.key());
-        p.setName(request.name());
-        return ProjectResponse.from(projects.save(p));
+        return ProjectResponse.from(members.createProject(request.key(), request.name(), principal.getName()));
     }
 
+    /** Your own projects; a site admin sees all of them. */
     @GetMapping
-    public List<ProjectResponse> list() {
-        return projects.findAll().stream().map(ProjectResponse::from).toList();
+    public List<ProjectResponse> list(Authentication authentication) {
+        boolean all = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_SITE_ADMIN".equals(a.getAuthority()));
+        return members.projectsOf(authentication.getName(), all);
     }
 
     @GetMapping("/{key}")

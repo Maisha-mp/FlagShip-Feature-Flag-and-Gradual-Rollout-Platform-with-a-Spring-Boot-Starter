@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head(${flag.key()})}"></head>
+<body>
+<header th:replace="~{fragments :: header(${username})}"></header>
+<main>
+    <p><a th:href="@{/projects/{k}(k=${project.key()})}" th:text="'&larr; ' + ${project.name()}">back</a></p>
+    <h1 th:text="${flag.key()}">flag</h1>
+    <p class="note ok" th:if="${message}" th:text="${message}"></p>
+    <p class="note bad" th:if="${error}" th:text="${error}"></p>
+
+    <div class="card">
+        <div>Name: <strong th:text="${flag.name()}">name</strong></div>
+        <div>Type: <span class="badge" th:text="${flag.type()}">BOOLEAN</span></div>
+        <div>Variations:
+            <span th:each="v : ${flag.variations()}" class="badge">
+                <span th:text="${v.key} + ' = ' + ${v.value}">on = true</span>
+            </span>
+        </div>
+        <div>Your role: <span class="badge" th:text="${role}">VIEWER</span></div>
+        <div th:if="${requireApproval}" class="muted">
+            This project needs a second person's approval for production changes. A reason is required.
+        </div>
+    </div>
+
+    <h2>Environments</h2>
+    <div class="card" th:each="ev : ${envs}">
+        <h2 style="margin-top:0">
+            <span th:text="${ev.name()}">PRODUCTION</span>
+            <span class="badge on" th:if="${ev.killSwitchOn()}">kill switch ON</span>
+            <span class="badge off" th:unless="${ev.killSwitchOn()}">kill switch off</span>
+        </h2>
+        <div>Default variation: <strong th:text="${ev.defaultVariation()}">off</strong></div>
+        <div>Variation when the kill switch is on: <strong th:text="${ev.offVariation()}">off</strong></div>
+        <div>User targets: <strong th:text="${ev.userTargets()}">0</strong>,
+            rules: <strong th:text="${ev.rules()}">0</strong>,
+            rollout: <strong th:text="${ev.rollout()}">none</strong></div>
+
+        <form class="row" th:if="${canEdit}"
+              th:action="@{/projects/{k}/flags/{f}/environments/{e}/kill-switch(k=${project.key()},f=${flag.key()},e=${ev.name()})}"
+              method="post">
+            <input type="hidden" name="on" th:value="${!ev.killSwitchOn()}">
+            <input type="text" name="reason" maxlength="500" placeholder="Reason for this change">
+            <button type="submit" th:text="${ev.killSwitchOn()} ? 'Turn kill switch OFF' : 'Turn kill switch ON'">Toggle</button>
+        </form>
+    </div>
+</main>
+</body>
+</html>

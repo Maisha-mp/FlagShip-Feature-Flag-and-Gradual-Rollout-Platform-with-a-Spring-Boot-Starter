@@ -50,12 +50,13 @@ public class FlagService {
     private final ApplicationEventPublisher events;
     private final VersionService versions;
     private final ChangeRequestService changeRequests;
+    private final SegmentService segments;
 
     public FlagService(ProjectRepository projects, FlagRepository flags,
                        FlagEnvironmentConfigRepository configs,
                        FlagConverter converter, ObjectMapper mapper,
                        ApplicationEventPublisher events, VersionService versions,
-                       ChangeRequestService changeRequests) {
+                       ChangeRequestService changeRequests, SegmentService segments) {
         this.projects = projects;
         this.flags = flags;
         this.configs = configs;
@@ -64,6 +65,7 @@ public class FlagService {
         this.events = events;
         this.versions = versions;
         this.changeRequests = changeRequests;
+        this.segments = segments;
     }
 
     // ---------- create ----------
@@ -91,7 +93,7 @@ public class FlagService {
         for (Map.Entry<Environment, EnvironmentRequest> e : req.environments().entrySet()) {
             FlagEnvironmentConfig cfg = new FlagEnvironmentConfig();
             cfg.setEnvironment(e.getKey());
-            applyTo(cfg, variations.keySet(), e.getValue());
+            applyTo(cfg, variations.keySet(), e.getValue(), projectKey);
             built.add(cfg);
         }
 
@@ -153,7 +155,7 @@ public class FlagService {
 
         // Validate the request on a scratch copy; the real config only changes when the command runs.
         FlagEnvironmentConfig scratch = new FlagEnvironmentConfig();
-        applyTo(scratch, converter.variationsFromJson(flag.getVariationsJson()).keySet(), req);
+        applyTo(scratch, converter.variationsFromJson(flag.getVariationsJson()).keySet(), req, projectKey);
         ConfigState state = ConfigState.from(scratch);
 
         Optional<ChangeRequestResponse> queued =
@@ -195,14 +197,22 @@ public class FlagService {
         });
     }
 
-    /** Validates a request and copies it onto the entity. Throws IllegalArgumentException if bad. */
-    private void applyTo(FlagEnvironmentConfig cfg, Set<String> variationNames, EnvironmentRequest r) {
+    /**
+     * Validates a request and copies it onto the entity. Throws IllegalArgumentException if bad.
+     * Rules that use segments are checked with the segments filled in, but stored with their
+     * references, so a later change to a segment reaches every flag that uses it.
+     */
+    private void applyTo(FlagEnvironmentConfig cfg, Set<String> variationNames, EnvironmentRequest r,
+                         String projectKey) {
         Map<String, String> userTargets = r.userTargets() == null ? Map.of() : r.userTargets();
         String rulesText = isMissing(r.rules()) ? "[]" : r.rules().toString();
         String rolloutText = isMissing(r.rollout()) ? null : r.rollout().toString();
 
+        boolean usesSegments = !isMissing(r.rules()) && segments.containsReference(r.rules());
+        String checkedRules = usesSegments ? segments.expandText(projectKey, rulesText, true) : rulesText;
+
         // These throw IllegalArgumentException on a bad operator, bad percent, bad shape...
-        List<Rule> rules = converter.rulesFromJson(rulesText);
+        List<Rule> rules = converter.rulesFromJson(checkedRules);
         Rollout rollout = converter.rolloutFromJson(rolloutText);
 
         requireVariation(variationNames, r.offVariation(), "offVariation");
@@ -221,7 +231,7 @@ public class FlagService {
         cfg.setOffVariation(r.offVariation());
         cfg.setDefaultVariation(r.defaultVariation());
         cfg.setUserTargetsJson(converter.userTargetsToJson(userTargets));
-        cfg.setRulesJson(converter.rulesToJson(rules));
+        cfg.setRulesJson(usesSegments ? rulesText : converter.rulesToJson(rules));
         cfg.setRolloutJson(converter.rolloutToJson(rollout));
     }
 

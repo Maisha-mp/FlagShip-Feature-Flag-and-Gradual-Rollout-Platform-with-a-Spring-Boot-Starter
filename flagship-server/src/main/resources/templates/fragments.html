@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(title)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title} + ' - FlagShip'">FlagShip</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f6f7f9; --card: #ffffff; --text: #1d2430; --muted: #5b6678;
+            --line: #d9dee7; --accent: #1f6feb; --bad: #b42318; --good: #1a7f37;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #12161c; --card: #1b212b; --text: #e6e9ef; --muted: #9aa6b8;
+                --line: #2d3646; --accent: #6ea8ff; --bad: #ff8a80; --good: #56d364;
+            }
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--bg); color: var(--text);
+               font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+        a { color: var(--accent); }
+        .top { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+               padding: .75rem 1.25rem; background: var(--card); border-bottom: 1px solid var(--line); }
+        .brand { font-weight: 700; text-decoration: none; color: var(--text); }
+        .who { display: flex; align-items: center; gap: .75rem; color: var(--muted); }
+        main { max-width: 60rem; margin: 0 auto; padding: 1.25rem; }
+        h1 { margin: .25rem 0 1rem; font-size: 1.5rem; }
+        h2 { margin: 1.5rem 0 .5rem; font-size: 1.1rem; }
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+                padding: 1rem; margin-bottom: 1rem; }
+        table.card { width: 100%; border-collapse: collapse; padding: 0; overflow: hidden; }
+        th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+        th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+        tr:last-child td { border-bottom: none; }
+        .note { padding: .6rem .9rem; border-radius: 6px; border: 1px solid var(--line); background: var(--card); }
+        .ok { border-color: var(--good); }
+        .bad { border-color: var(--bad); }
+        .muted { color: var(--muted); }
+        .badge { display: inline-block; padding: .05rem .5rem; border-radius: 999px;
+                 border: 1px solid var(--line); font-size: .8rem; }
+        .on { color: var(--bad); border-color: var(--bad); font-weight: 600; }
+        .off { color: var(--good); border-color: var(--good); }
+        label { display: block; margin: .5rem 0 .2rem; font-size: .9rem; color: var(--muted); }
+        input[type=text], input[type=password] { width: 100%; max-width: 24rem; padding: .5rem .6rem;
+                border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+        button { padding: .5rem .9rem; border-radius: 6px; border: 1px solid var(--accent);
+                 background: var(--accent); color: #fff; cursor: pointer; font: inherit; }
+        button.link { background: none; border: none; color: var(--accent); padding: 0; }
+        form.inline { display: inline; }
+        form.row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: .5rem; }
+        form.row input[type=text] { flex: 1 1 12rem; }
+    </style>
+</head>
+<body>
+<header class="top" th:fragment="header(username)">
+    <a class="brand" th:href="@{/projects}">FlagShip</a>
+    <span class="who">
+        <span th:text="${username}">user</span>
+        <form class="inline" th:action="@{/logout}" method="post">
+            <button type="submit" class="link">Log out</button>
+        </form>
+    </span>
+</header>
+</body>
+</html>

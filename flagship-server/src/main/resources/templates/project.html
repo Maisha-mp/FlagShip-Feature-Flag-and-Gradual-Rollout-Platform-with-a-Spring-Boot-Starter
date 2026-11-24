@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head(${project.key()})}"></head>
+<body>
+<header th:replace="~{fragments :: header(${username})}"></header>
+<main>
+    <p><a th:href="@{/projects}">&larr; All projects</a></p>
+    <h1 th:text="${project.name()}">Project</h1>
+    <p class="note ok" th:if="${message}" th:text="${message}"></p>
+    <p class="note bad" th:if="${error}" th:text="${error}"></p>
+
+    <div class="card">
+        <div>Key: <strong th:text="${project.key()}">key</strong></div>
+        <div>Your role: <span class="badge" th:text="${role}">VIEWER</span></div>
+        <div>Production changes need a second person's approval:
+            <strong th:text="${requireApproval} ? 'yes' : 'no'">no</strong></div>
+    </div>
+
+    <h2>Flags</h2>
+    <div class="card muted" th:if="${flags.isEmpty()}">
+        This project has no flags yet. Creating flags in the web pages comes in part 2; for now use the API.
+    </div>
+    <table class="card" th:unless="${flags.isEmpty()}">
+        <thead><tr><th>Key</th><th>Name</th><th>Type</th><th>Kill switch on in</th></tr></thead>
+        <tbody>
+        <tr th:each="f : ${flags}">
+            <td><a th:href="@{/projects/{k}/flags/{f}(k=${project.key()},f=${f.key()})}" th:text="${f.key()}">key</a></td>
+            <td th:text="${f.name()}">name</td>
+            <td th:text="${f.type()}">BOOLEAN</td>
+            <td th:text="${f.killSwitchIn()}">none</td>
+        </tr>
+        </tbody>
+    </table>
+</main>
+</body>
+</html>

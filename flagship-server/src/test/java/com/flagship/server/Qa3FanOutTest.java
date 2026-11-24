@@ -15,6 +15,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,11 +25,7 @@ import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 
 /**
  * QA3: a kill-switch change must reach 50 running application instances within 5 seconds at p95.
@@ -37,7 +34,8 @@ import org.springframework.http.ResponseEntity;
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT, properties = {
         "spring.datasource.url=jdbc:h2:mem:qa3;DB_CLOSE_DELAY=-1",
         "spring.jpa.show-sql=false",
-        "flagship.enabled=false"   // the starter must not configure itself inside the server
+        "flagship.enabled=false",   // the starter must not configure itself inside the server
+        "flagship.security.admin-password=admin-test-pw-1"
 })
 class Qa3FanOutTest {
 
@@ -60,17 +58,15 @@ class Qa3FanOutTest {
     @TempDir
     Path dir;
 
-    private String baseUrl() {
-        return "http://127.0.0.1:" + port;
+    private TestApi api;
+
+    @BeforeEach
+    void setUp() {
+        api = new TestApi(rest, port);
     }
 
-    private void send(HttpMethod method, String path, String json) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        ResponseEntity<String> response = rest.exchange(baseUrl() + path, method,
-                new HttpEntity<>(json, headers), String.class);
-        assertTrue(response.getStatusCode().is2xxSuccessful(),
-                method + " " + path + " answered " + response.getStatusCode() + ": " + response.getBody());
+    private String baseUrl() {
+        return "http://127.0.0.1:" + port;
     }
 
     private static String environmentJson(boolean killSwitchOn) {
@@ -78,19 +74,10 @@ class Qa3FanOutTest {
                 + "\"userTargets\":{},\"rules\":[],\"rollout\":null}";
     }
 
-    private void createProjectAndFlag() {
-        send(HttpMethod.POST, "/api/projects", "{\"key\":\"" + PROJECT + "\",\"name\":\"QA3 fan-out\"}");
-        String env = environmentJson(false);
-        send(HttpMethod.POST, "/api/projects/" + PROJECT + "/flags",
-                "{\"key\":\"" + FLAG + "\",\"name\":\"Kill test\",\"type\":\"BOOLEAN\","
-                        + "\"variations\":{\"on\":true,\"off\":false},"
-                        + "\"environments\":{\"DEVELOPMENT\":" + env + ",\"STAGING\":" + env
-                        + ",\"PRODUCTION\":" + env + "}}");
-    }
-
     private void putKillSwitch(boolean on) {
-        send(HttpMethod.PUT, "/api/projects/" + PROJECT + "/flags/" + FLAG + "/environments/PRODUCTION",
-                environmentJson(on));
+        TestApi.expect(200, api.call(HttpMethod.PUT,
+                "/api/projects/" + PROJECT + "/flags/" + FLAG + "/environments/PRODUCTION",
+                environmentJson(on), "admin", null));
     }
 
     /** One application instance: the starter's auto-configuration in its own Spring context. */
@@ -131,7 +118,8 @@ class Qa3FanOutTest {
 
     @Test
     void killSwitchReachesFiftyInstancesWithinTheLimit() throws Exception {
-        createProjectAndFlag();
+        api.createProject(PROJECT, "admin");
+        api.createFlag(PROJECT, FLAG, "admin", null);
         List<AnnotationConfigApplicationContext> apps = new ArrayList<>();
         try {
             List<FlagClient> clients = new ArrayList<>();
